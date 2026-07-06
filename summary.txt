@@ -118,8 +118,8 @@ Thuật toán bám vạch được nâng cấp với độ mịn và khả năng
 5. TASK 1: CHI TIẾT WIFI WEB DASHBOARD (WifiAP & WebServer)
 ================================================================================
 ESP32 tự động kết nối vào mạng Wi-Fi cục bộ để bạn truy cập thuận tiện từ cùng một mạng:
-*   **SSID (Tên Wi-Fi) :** `VIETSET_TECH`
-*   **Mật khẩu         :** `vs68686868`
+*   **SSID (Tên Wi-Fi) :** ``
+*   **Mật khẩu         :** ``
 *   **Địa chỉ IP Web   :** `http://192.168.1.150` (IP tĩnh mặc định đã được cấu hình cố định trong Config.h)
 *   **Dự phòng (AP Mode):** Nếu kết nối vào 'VIETSET_TECH' thất bại sau 8 giây, ESP32 sẽ tự động phát mạng Wi-Fi Access Point dự phòng:
     *   SSID: `ESP32_Robot_Line` | Mật khẩu: `12345678` | IP: `http://192.168.4.1`
