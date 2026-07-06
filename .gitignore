@@ -1,0 +1,16 @@
+# Arduino Build folders
+build/
+*.local.tmp
+*.local
+
+# VS Code & IDE configs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Temporary files
+*.tmp
+*.log
+.gemini/
+antigravity-ide/

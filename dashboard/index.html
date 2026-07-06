@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Line Follower - Control Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="glass-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <span class="pulse-dot"></span>
+        <h1>SMART LINE FOLLOWER</h1>
+      </div>
+      <div class="status-badge" id="wifi-status">Đang kết nối...</div>
+    </header>
+
+    <!-- Grid Layout -->
+    <div class="dashboard-grid">
+      <!-- Left Panel: Live Telemetry -->
+      <section class="card telemetry-card">
+        <h2 class="card-title">Giám Sát Thời Gian Thực</h2>
+        
+        <!-- Sensor Array Visualizer -->
+        <div class="visualizer-container">
+          <label>Trạng thái 8 Mắt Cảm Biến</label>
+          <div class="sensor-array" id="sensor-array">
+            <div class="sensor-dot" data-index="0"><span>S0</span></div>
+            <div class="sensor-dot" data-index="1"><span>S1</span></div>
+            <div class="sensor-dot" data-index="2"><span>S2</span></div>
+            <div class="sensor-dot" data-index="3"><span>S3</span></div>
+            <div class="sensor-dot" data-index="4"><span>S4</span></div>
+            <div class="sensor-dot" data-index="5"><span>S5</span></div>
+            <div class="sensor-dot" data-index="6"><span>S6</span></div>
+            <div class="sensor-dot" data-index="7"><span>S7</span></div>
+          </div>
+        </div>
+
+        <!-- Telemetry Stats -->
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Chế độ chạy</span>
+            <span class="stat-value text-accent" id="val-mode">N/A</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Trạng thái</span>
+            <span class="stat-value" id="val-state">N/A</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Khoảng cách</span>
+            <span class="stat-value text-warning" id="val-dist">-- cm</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Sai số PID</span>
+            <span class="stat-value" id="val-pid-err">0</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Center Panel: Live Controls -->
+      <section class="card controls-card">
+        <h2 class="card-title">Bảng Điều Khiển Lệnh</h2>
+        
+        <div class="btn-group">
+          <button class="btn btn-primary" id="btn-start" onclick="sendCommand('start')">CHẠY XE</button>
+          <button class="btn btn-danger" id="btn-stop" onclick="sendCommand('stop')">DỪNG KHẨN CẤP</button>
+        </div>
+
+        <div class="btn-group secondary">
+          <button class="btn btn-secondary" onclick="sendCommand('mode2')">Mode 2 (Chậm)</button>
+          <button class="btn btn-secondary" onclick="sendCommand('mode3')">Mode 3 (Nhanh)</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <h3 class="sub-title">Hiệu Chuẩn Cảm Biến (Calib)</h3>
+        <div class="btn-group">
+          <button class="btn btn-calib" id="btn-calib-start" onclick="sendCommand('calib_start')">Bắt Đầu Học Màu</button>
+          <button class="btn btn-calib" id="btn-calib-save" onclick="sendCommand('calib_save')">Lưu & Sẵn Sàng</button>
+        </div>
+      </section>
+
+      <!-- Right Panel: Tuning Panel -->
+      <section class="card tuning-card">
+        <h2 class="card-title">Cân Chỉnh Tham Số (Live Tuning)</h2>
+        
+        <form id="tuning-form" onsubmit="event.preventDefault();">
+          <!-- Slider Kp -->
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="slider-kp">Hệ số tỷ lệ (Kp)</label>
+              <span class="slider-value" id="val-kp">1.0</span>
+            </div>
+            <input type="range" id="slider-kp" min="0.1" max="5.0" step="0.1" value="1.0" oninput="updateSliderVal('kp', this.value)">
+          </div>
+
+          <!-- Slider Kd -->
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="slider-kd">Hệ số vi phân (Kd)</label>
+              <span class="slider-value" id="val-kd">15</span>
+            </div>
+            <input type="range" id="slider-kd" min="0" max="100" step="1" value="15" oninput="updateSliderVal('kd', this.value)">
+          </div>
+
+          <!-- Slider Speed 2 -->
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="slider-speed2">Tốc độ Mode 2 (Chậm)</label>
+              <span class="slider-value" id="val-speed2">1600</span>
+            </div>
+            <input type="range" id="slider-speed2" min="1000" max="4000" step="50" value="1600" oninput="updateSliderVal('speed2', this.value)">
+          </div>
+
+          <!-- Slider Speed 3 -->
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="slider-speed3">Tốc độ Mode 3 (Nhanh)</label>
+              <span class="slider-value" id="val-speed3">1800</span>
+            </div>
+            <input type="range" id="slider-speed3" min="1000" max="4000" step="50" value="1800" oninput="updateSliderVal('speed3', this.value)">
+          </div>
+
+          <button class="btn btn-save" onclick="sendTuningParams()">GỬI THAM SỐ</button>
+        </form>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>&copy; 2026 ESP32 Line Follower System. HUST AIoT Lab.</p>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

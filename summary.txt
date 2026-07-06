@@ -1,0 +1,173 @@
+================================================================================
+              XE DÒ LINE - ESP32 PID 2 BÁNH L298N | TỔNG HỢP DỰ ÁN CHI TIẾT
+================================================================================
+Đường dẫn thư mục : C:\Users\DELL\OneDrive - Hanoi University of Science and Technology\Desktop\Xe_Dò_Line
+Cập nhật mới nhất : 2026 (Phân tách 3 Task Độc lập & Tối ưu hóa thuật toán)
+Thiết kế phát triển: Dự án Xe Dò Line
+Bộ điều khiển      : ESP32 Dev Module (38 chân)
+
+================================================================================
+1. TỔNG QUAN DỰ ÁN & PHẦN CỨNG
+================================================================================
+Xe dò line tự hành sử dụng cấu trúc dẫn động vi sai (Differential Drive) với 2 bánh chủ động phía sau và 1 bánh xe mắt trâu chịu hướng phía trước.
+- Khối điều khiển trung tâm: ESP32 Dev Kit (38 chân), chạy hệ điều hành thời gian thực FreeRTOS (nền tảng).
+- Khối công suất động cơ : Driver L298N chịu trách nhiệm đóng cắt dòng và băm xung PWM điều khiển tốc độ 2 động cơ DC giảm tốc (phần cứng sụt áp khoảng 1.5V - 2V).
+- Khối cảm biến dò line  : Mảng 8 cảm biến quang hồng ngoại (S0..S7) đọc tín hiệu Analog trực tiếp từ chân ADC của ESP32.
+- Khối cảm biến vật cản : Cảm biến siêu âm HC-SR04 đặt trên giá đỡ Servo SG90 quay góc từ 0 đến 180 độ.
+- Nguồn cấp            : Pin Li-Po 2S hoặc 3S (7.4V - 11.1V). Mạch hạ áp MP1584 Buck Converter hạ nguồn pin xuống 5V sạch cấp cho logic của L298N, Servo, Buzzer và cảm biến siêu âm.
+- Còi báo (Buzzer)     : Phát tín hiệu cảnh báo hoặc tín hiệu Calib.
+- Lưu trữ bộ nhớ       : EEPROM của ESP32 lưu trữ giá trị cực trị (Calib) của 8 cảm biến hồng ngoại.
+
+================================================================================
+2. CẤU TRÚC THƯ MỤC CÁC TASK ĐỘC LẬP
+================================================================================
+Mã nguồn được phân tách ngăn nắp thành 3 nhiệm vụ (Task) độc lập và 1 thư mục kiểm thử phần cứng trong thư mục `main/`:
+
+Xe_Dò_Line/
+├── main/
+│     ├── HardwareTest/             <- [GIỮ NGUYÊN] Thư mục kiểm tra phần cứng thô (không sửa đổi).
+│     │
+│     ├── ServoTest/                <- [KIỂM THỬ SERVO] Thư mục kiểm tra Servo SG90 quay quét.
+│     │     └── ServoTest.ino
+│     │
+│     ├── Task1_WifiControl/         <- [TASK 1] Thiết lập mạng Wifi & Điều khiển qua Web Dashboard.
+│     │     ├── Task1_WifiControl.ino
+│     │     ├── Config.h              (Tần số PWM, các chân nút nhấn, động cơ, còi)
+│     │     ├── SharedState.h/.cpp    (Khai báo Kp, Kd, và tốc độ Mode 2, Mode 3 động)
+│     │     ├── MotorControl.h/.cpp   (Hàm L298N, hãm tốc độ ôm cua tự động)
+│     │     ├── LineSensor.h/.cpp     (Đọc 8 mắt cảm biến, nội suy tuyến tính, tính sai số)
+│     │     ├── LineFollower.h/.cpp   (State machine dò line, cứu hộ 3s, phanh thẳng 1s)
+│     │     ├── WifiControl.h/.cpp    (Phát Wifi AP, chạy REST API điều khiển & chỉnh tham số)
+│     │     └── WebDashboard.h        (Chứa mã nhúng HTML/CSS/JS giao diện Dark Mode Glassmorphism)
+│     │
+│     ├── Task2_PD_LineFollower/     <- [TASK 2] Giải thuật bám vạch tối ưu bằng PD (Proportional-Derivative).
+│     │     ├── Task2_PD_LineFollower.ino
+│     │     ├── Config.h              (Hằng số KP, KD tĩnh)
+│     │     ├── SharedState.h/.cpp
+│     │     ├── MotorControl.h/.cpp   (Tối giản, loại bỏ hoàn toàn mã nguồn siêu âm/servo)
+│     │     ├── LineSensor.h/.cpp     (Giải thuật lọc thông thấp, tăng ích phi tuyến Variable Gain)
+│     │     └── LineFollower.h/.cpp   (Chỉ chứa logic bám line và tự cứu khẩn cấp)
+│     │
+│     └── Task3_ObstacleAvoidance/   <- [TASK 3] Giải thuật tự do tránh vật cản (Wander & Avoid).
+│           ├── Task3_ObstacleAvoidance.ino
+│           ├── Config.h
+│           ├── SharedState.h/.cpp
+│           ├── MotorControl.h/.cpp   (Định nghĩa hàm L298N và hàm còi báo beep)
+│           ├── ServoBracket.h/.cpp   (Điều khiển Servo SG90 quay 45, 90, 135 độ)
+│           └── Ultrasonic.h/.cpp     (Thuật toán lùi xe 400ms và quét radar tránh vật cản tự do)
+│
+├── dashboard/                       <- Thư mục chứa giao diện web gốc để chỉnh sửa thủ công.
+│     ├── index.html
+│     ├── style.css
+│     └── app.js
+│
+└── summary.txt                      <- File này (Tổng hợp hướng dẫn dự án siêu chi tiết).
+
+================================================================================
+3. SƠ ĐỒ ĐẤU NỐI CHÂN ESP32 (Đồng bộ cho cả 3 Task)
+================================================================================
+ Ngoại vi              | Chân ESP32 | Chế độ GPIO       | Ghi chú
+-----------------------|------------|-------------------|-----------------------------
+ Driver L298N RIN1     | GPIO 16    | OUTPUT (Digital)  | Điều khiển chiều Motor Phải
+ Driver L298N RIN2     | GPIO 17    | OUTPUT (Digital)  | Điều khiển chiều Motor Phải
+ Driver L298N RENA     | GPIO 14    | OUTPUT (PWM)      | Điều khiển tốc độ Motor Phải
+ Driver L298N LIN1     | GPIO 18    | OUTPUT (Digital)  | Điều khiển chiều Motor Trái
+ Driver L298N LIN2     | GPIO 19    | OUTPUT (Digital)  | Điều khiển chiều Motor Trái
+ Driver L298N LENA     | GPIO 27    | OUTPUT (PWM)      | Điều khiển tốc độ Motor Trái
+ Cảm biến Line S0      | GPIO 36    | INPUT (ADC)       | Cảm biến quang ngoài cùng bên trái
+ Cảm biến Line S1      | GPIO 39    | INPUT (ADC)       | Cảm biến quang trái trong
+ Cảm biến Line S2      | GPIO 34    | INPUT (ADC)       | Cảm biến quang trái trung tâm
+ Cảm biến Line S3      | GPIO 35    | INPUT (ADC)       | Cảm biến quang tâm trái
+ Cảm biến Line S4      | GPIO 32    | INPUT (ADC)       | Cảm biến quang tâm phải
+ Cảm biến Line S5      | GPIO 33    | INPUT (ADC)       | Cảm biến quang phải trung tâm
+ Cảm biến Line S6      | GPIO 25    | INPUT (ADC)       | Cảm biến quang phải trong
+ Cảm biến Line S7      | GPIO 26    | INPUT (ADC)       | Cảm biến quang ngoài cùng bên phải
+ HC-SR04 TRIG          | GPIO 5     | OUTPUT (Digital)  | Phát xung siêu âm
+ HC-SR04 ECHO          | GPIO 21    | INPUT (Digital)   | Nhận xung phản hồi (cần cầu phân áp)
+ Servo SG90 Signal     | GPIO 13    | OUTPUT (PWM)      | Điều khiển vị trí bracket
+ Nút nhấn SW1 (Calib)  | GPIO 15    | INPUT_PULLUP      | Học màu cảm biến
+ Nút nhấn SW2 (Chạy)   | GPIO 22    | INPUT_PULLUP      | Chạy chậm
+ Nút nhấn SW3 (Chạy)   | GPIO 23    | INPUT_PULLUP      | Chạy nhanh
+ Còi báo (Buzzer)      | GPIO 4     | OUTPUT (Digital)  | Còi báo âm bíp
+
+*Lưu ý phần cứng: Chân ECHO của HC-SR04 xuất mức 5V. Đầu vào ESP32 chỉ chịu tối đa 3.3V. Cần sử dụng mạch phân áp (ví dụ trở 1K và 2K) để hạ áp chân ECHO xuống 3.3V trước khi cắm vào GPIO 21.
+
+================================================================================
+4. CHI TIẾT GIẢI THUẬT DÒ LINE PD CẢI TIẾN
+================================================================================
+Thuật toán bám vạch được nâng cấp với độ mịn và khả năng phản xạ vượt trội so với các hệ thống if-else thông thường:
+
+1.  **Nội suy tuyến tính (Linear Interpolation):**
+    Đọc giá trị Analog của cảm biến, ánh xạ từ dải giá trị Calib đen/trắng thành phần trăm tuyến tính (0 đến 1000). Điều này giúp đo khoảng cách chính xác theo mm thay vì nhị phân hóa thô.
+2.  **Bộ lọc thông thấp sai số (Low-pass Filter):**
+    `smoothedError = 0.75 * error + 0.25 * smoothedError`
+    Giúp lọc các gai nhiễu điện từ động cơ hoặc các điểm mấp mô nhỏ trên mặt sàn, làm cho bánh xe chuyển động mượt mà, không bị rè hoặc giật cục.
+3.  **Tăng ích phi tuyến (Variable Gain):**
+    `error = error * (0.4 + 0.6 * abs(normError))`
+    *   Khi xe chạy gần tâm: Lực điều chỉnh lái giảm 60% giúp xe chạy thẳng cực kỳ đằm và ổn định.
+    *   Khi xe trượt ra biên: Lực điều chỉnh tăng dần lên 100% để kéo xe bám làn nhanh chóng.
+4.  **Hãm tốc ôm cua tự động (Dynamic Speed Control):**
+    Tốc độ nền của xe tự động hãm phanh chậm dần từ tốc độ chạy thẳng (`1600`/`1800`) về mức tối thiểu an toàn (`1000`) dựa trên độ lệch vạch `g_posPID`. Ôm cua càng gắt xe chạy càng chậm để bám cua; hết cua xe lại tự ga mạnh bứt tốc.
+5.  **Xử lý Ngã tư (Crossroad Check):**
+    Khi phát hiện các mắt biên trái (S0, S1), mắt giữa (S3, S4) và mắt biên phải (S6, S7) đồng thời chạm vạch đen, hệ thống tự động ép sai số `error = 0` để xe tiếp tục đi thẳng băng qua giao lộ mà không bị giật lái bẻ theo vạch cắt ngang.
+6.  **Tự cứu khẩn cấp thích ứng (Adaptive Recovery):**
+    *   **Mất vạch trên đường thẳng (`g_rememberLine == 0`):** Xe lập tức bò chậm ở tốc độ `1200` và tự động phanh cứng ngắt động cơ sau **`1000ms`** (1 giây) để đảm bảo an toàn.
+    *   **Mất vạch khi ôm cua (`g_rememberLine != 0`):** Xe ngay lập tức xoay vi sai chủ động tại chỗ (bánh ngoài quay `1400`, bánh trong lùi `-1000`) để quét tìm lại vạch đen trong tối đa **`3000ms`** (3 giây) trước khi tự động ngắt còi báo dừng.
+
+================================================================================
+5. TASK 1: CHI TIẾT WIFI WEB DASHBOARD (WifiAP & WebServer)
+================================================================================
+ESP32 tự động kết nối vào mạng Wi-Fi cục bộ để bạn truy cập thuận tiện từ cùng một mạng:
+*   **SSID (Tên Wi-Fi) :** `VIETSET_TECH`
+*   **Mật khẩu         :** `vs68686868`
+*   **Địa chỉ IP Web   :** `http://192.168.1.150` (IP tĩnh mặc định đã được cấu hình cố định trong Config.h)
+*   **Dự phòng (AP Mode):** Nếu kết nối vào 'VIETSET_TECH' thất bại sau 8 giây, ESP32 sẽ tự động phát mạng Wi-Fi Access Point dự phòng:
+    *   SSID: `ESP32_Robot_Line` | Mật khẩu: `12345678` | IP: `http://192.168.4.1`
+
+**Kiến trúc Web Server REST API:**
+- `GET /`               : Trả về trang Web Dashboard (tải từ bộ nhớ Flash qua `WebDashboard.h`).
+- `GET /style.css`      : Phục vụ tệp định dạng giao diện.
+- `GET /app.js`         : Phục vụ tệp kịch bản logic giao diện.
+- `GET /api/telemetry`  : Trả về chuỗi JSON chứa toàn bộ dữ liệu thời gian thực (trạng thái 8 cảm biến dạng bitmask, khoảng cách siêu âm, sai số PID, tốc độ động cơ trái/phải, hệ số Kp, Kd hiện tại).
+- `POST /api/control`   : Nhận các lệnh điều khiển (`action=start`, `action=stop`, `action=mode2`, `action=mode3`, `action=calib_start`, `action=calib_save`).
+- `POST /api/tune`      : Nhận giá trị cấu hình trực tiếp từ thanh trượt (`kp=...&kd=...&speed2=...&speed3=...`), cập nhật biến động cơ tức thời mà không cần nạp lại code.
+
+================================================================================
+6. TASK 3: TỐI ƯU THUẬT TOÁN TRÁNH VẬT CẢN (Altium Custom Avoidance)
+================================================================================
+Khi xe đang chạy bám line, nếu cảm biến siêu âm phát hiện vật cản trước mặt `< 12cm`:
+1.  **Phanh gấp & Báo còi:** Xe dừng bánh ngay lập tức, còi phát âm bíp.
+2.  **Lùi tạo góc thoát (Mới - Tối ưu từ Altium):** 
+    Xe tạm thời ngắt cơ chế stop, kích hoạt lệnh lùi xe vi sai ở tốc độ **`-1200` trong `400ms`** rồi mới dừng hẳn. Việc này tạo ra một khoảng trống an toàn giữa xe và vật cản, tránh việc khi bẻ lái đầu xe bị đâm hay quét hông vào chướng ngại vật.
+3.  **Quét cảm biến tìm lối đi:**
+    *   Servo quay cảm biến siêu âm sang **Trái (45°)**, chờ 600ms ổn định góc, đo khoảng cách `distLeft`.
+    *   Servo quay cảm biến siêu âm sang **Phải (135°)**, chờ 600ms ổn định góc, đo khoảng cách `distRight`.
+    *   Servo trả về trung tâm **(90°)**.
+4.  **Ra quyết định tránh né:**
+    *   Nếu cả hai phía đều bị chặn (< 25cm): Xe dừng hẳn an toàn, còi bíp kéo dài và ngắt chạy (`g_start = 0`).
+    *   Nếu phía Trái thoáng hơn (`distLeft >= distRight`):
+        *   Xoay tròn trái tại chỗ (`-1000` / `1400`) trong 450ms.
+        *   Đi thẳng vượt qua vật cản (`1300` / `1300`) trong 600ms.
+        *   Xoay ngược phải (`1400` / `-1000`) để hướng đầu xe vào lại vạch line. Cho xe quét liên tục, khi bất kỳ cảm biến nào chạm lại vạch đen (`g_sensor != 0`), xe dừng xoay, phát tiếng bíp và tiếp tục bám line chạy bình thường.
+    *   Nếu phía Phải thoáng hơn (`distRight > distLeft`): Thực hiện chuỗi né tránh tương tự về bên phải.
+
+================================================================================
+7. HƯỚNG DẪN HIỆU CHUẨN CẢM BIẾN & VẬN HÀNH (CALIBRATION & RUN)
+================================================================================
+Dự án hiện tại đã chuyển sang chế độ **Cấu hình cảm biến tĩnh (Static Calibration)**:
+1.  **Bỏ qua học màu:** Bạn KHÔNG cần phải bấm nút học màu hay quét tay nữa. Code đã được tối ưu hóa sẵn với các ngưỡng đo lý thuyết của sân chạy thông dụng (Đen = 700, Trắng = 3200, Ngưỡng so sánh = 1950).
+2.  **Một nút nhấn Start/Stop duy nhất:** 
+    *   Bỏ các nút bấm phụ SW1, SW3.
+    *   Đặt xe lên vạch xuất phát, nhấn nút **SW2 (GPIO 22)** để bắt đầu chạy dò line tự động.
+    *   Nhấn lại **SW2 (GPIO 22)** thêm lần nữa khi xe đang chạy để dừng xe ngay lập tức (Stop khẩn cấp).
+
+================================================================================
+8. KHẮC PHỤC SỰ CỐ NHANH
+================================================================================
+- **Động cơ chạy ngược chiều:** Đảo ngược dây đấu cực của động cơ tương ứng trên cầu đấu L298N (IN1-IN2 cho bánh phải hoặc IN3-IN4 cho bánh trái).
+- **Xe bị đứng đơ khi mất vạch:** Đảm bảo mức tốc độ tối thiểu để thắng ma sát tĩnh trên sàn nhà là trên `1000`. Code hiện tại đã chỉnh tốc độ cứu hộ bánh ngoài lên `1400` và bánh trong lùi `-1000` bảo đảm không bị đơ kẹt bánh.
+- **Không truy cập được Web Dashboard:** Kiểm tra xem điện thoại/máy tính đã kết nối thành công vào Wi-Fi `ESP32_Robot_Line` chưa. Gõ chính xác IP `192.168.4.1` trên thanh địa chỉ của trình duyệt.
+
+================================================================================
+                                  HẾT
+================================================================================
